@@ -145,7 +145,6 @@ class ClaudeWrapper:
         self._last_transcript = ""
         self._ui_lines_used = 0
         self._pause_output = False  # Pause Claude Code output during voice processing
-        self._output_buffer = bytearray()  # Buffer for output during pause
 
     def _on_recording_change(self, recording: bool):
         """Handle recording state changes."""
@@ -268,24 +267,23 @@ class ClaudeWrapper:
     def _clear_recording_ui(self):
         """Clear the recording UI."""
         if self._recording_display_active and self._ui_lines_used > 0:
-            # Save cursor position first
-            sys.stdout.write("\033[s")
-            # Reset terminal state and colors
+            # Reset terminal state and colors first
             sys.stdout.write("\033[0m")  # Reset all attributes
             # Move up to start of UI area
             sys.stdout.write(f"\033[{self._ui_lines_used}A")
-            # Clear each line without adding newlines (use explicit cursor down)
-            for i in range(self._ui_lines_used):
-                sys.stdout.write("\033[2K")  # Clear line only
-                if i < self._ui_lines_used - 1:
-                    sys.stdout.write("\033[B")  # Move down explicitly (not \n)
-            # Restore cursor to saved position
-            sys.stdout.write("\033[u")
-            # Reset terminal state to ensure clean state for Claude Code
+            # Clear each line and move back down
+            for _ in range(self._ui_lines_used):
+                sys.stdout.write("\033[2K\n")  # Clear ENTIRE line, move down
+            # Move cursor back up to original position (before we printed newlines for UI space)
+            sys.stdout.write(f"\033[{self._ui_lines_used}A")
+            # Reset terminal state again to ensure clean state for Claude Code
             sys.stdout.write("\033[0m\033[?25h")  # Reset attributes + show cursor
             sys.stdout.flush()
             self._recording_display_active = False
             self._ui_lines_used = 0
+
+            # Small delay to ensure terminal processes the clear commands
+            time.sleep(0.1)
 
     def _setup_terminal(self):
         """Set terminal to raw mode."""
@@ -321,26 +319,11 @@ class ClaudeWrapper:
                     result = await self._voice.toggle()
 
                     if result:
-                        # Flush any buffered Claude Code output first
-                        if self._output_buffer:
-                            sys.stdout.buffer.write(self._output_buffer)
-                            sys.stdout.flush()
-                            self._output_buffer.clear()
-
-                        # Small async delay for terminal to settle
-                        await asyncio.sleep(0.05)
-
                         # Insert final transcribed text into Claude Code
                         self.child.send(result.encode('utf-8'))
 
                     # Resume Claude Code output now that text is sent
                     self._pause_output = False
-
-                    # Flush any remaining buffered output
-                    if self._output_buffer:
-                        sys.stdout.buffer.write(self._output_buffer)
-                        sys.stdout.flush()
-                        self._output_buffer.clear()
 
                     # Remove Ctrl+R from data and send the rest
                     data = data.replace(CTRL_R, b"")
@@ -360,13 +343,9 @@ class ClaudeWrapper:
                 # Use pexpect's read with timeout
                 data = self.child.read_nonblocking(size=4096, timeout=0.05)
                 if data:
-                    # Buffer output while voice input is being processed
+                    # Skip output while voice input is being processed
                     # This prevents Claude Code's cursor movements from corrupting display
                     if self._pause_output:
-                        if isinstance(data, bytes):
-                            self._output_buffer.extend(data)
-                        else:
-                            self._output_buffer.extend(data.encode('utf-8'))
                         continue
 
                     # Write to stdout

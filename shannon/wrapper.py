@@ -148,7 +148,8 @@ class ClaudeWrapper:
 
     def _on_transcript_update(self, text: str):
         """Handle real-time transcript updates - show in UI."""
-        if text != self._last_transcript:
+        # Only update UI if still recording (prevents race condition with stop)
+        if self._voice.is_recording and text != self._last_transcript:
             self._last_transcript = text
             self._show_recording_ui(text)
 
@@ -249,12 +250,12 @@ class ClaudeWrapper:
     def _clear_recording_ui(self):
         """Clear the recording UI."""
         if self._recording_display_active and self._ui_lines_used > 0:
-            # Save cursor, clear all lines we used, restore cursor
-            sys.stdout.write("\033[s")  # Save cursor
-            sys.stdout.write(f"\033[{self._ui_lines_used}A")  # Move up
+            # Move up to start of UI area
+            sys.stdout.write(f"\033[{self._ui_lines_used}A")
+            # Clear each line and move back down
             for _ in range(self._ui_lines_used):
-                sys.stdout.write("\033[2K\n")  # Clear ENTIRE line
-            sys.stdout.write("\033[u")  # Restore cursor
+                sys.stdout.write("\033[2K\n")  # Clear ENTIRE line, move down
+            # Cursor is now back where it started (after the UI area)
             sys.stdout.flush()
             self._recording_display_active = False
             self._ui_lines_used = 0

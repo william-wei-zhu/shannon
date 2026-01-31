@@ -130,38 +130,58 @@ class ClaudeWrapper:
         )
         self._original_termios = None
         self._running = False
-        self._status_line = ""
+        self._recording_display_active = False
         self._last_transcript = ""
 
     def _on_recording_change(self, recording: bool):
         """Handle recording state changes."""
         if recording:
-            self._show_status("[Recording...] Speak now, press Ctrl+R to stop")
+            self._last_transcript = ""
+            self._show_recording_ui("")
         else:
-            self._clear_status()
+            self._clear_recording_ui()
 
     def _on_transcript_update(self, text: str):
-        """Handle real-time transcript updates."""
+        """Handle real-time transcript updates - show in UI."""
         if text != self._last_transcript:
             self._last_transcript = text
-            self._show_status(f"[Recording] {text}")
+            self._show_recording_ui(text)
 
-    def _show_status(self, message: str):
-        """Show a status message above the current line."""
-        # Save cursor, move up, clear line, print status, restore cursor
-        if self._status_line:
-            # Clear previous status
-            sys.stdout.write(f"\r\033[K")
-        sys.stdout.write(f"\r\033[s\033[1A\033[K{message}\033[u")
+    def _show_recording_ui(self, transcript: str):
+        """Show recording UI with transcript below status line."""
+        # Save cursor position
+        sys.stdout.write("\033[s")
+
+        # Move up 2 lines and clear them
+        sys.stdout.write("\033[2A")
+        sys.stdout.write("\033[K")  # Clear line 1
+
+        # Show status line
+        sys.stdout.write("\r\033[91m[Recording...]\033[0m Speak now. Press \033[1mCtrl+R\033[0m to stop.")
+
+        # Move to next line and show transcript
+        sys.stdout.write("\n\033[K")  # Clear line 2
+        if transcript:
+            # Truncate if too long for display
+            max_len = 70
+            display_text = transcript if len(transcript) <= max_len else "..." + transcript[-(max_len-3):]
+            sys.stdout.write(f"\r\033[93m> {display_text}\033[0m")
+
+        # Restore cursor position
+        sys.stdout.write("\033[u")
         sys.stdout.flush()
-        self._status_line = message
+        self._recording_display_active = True
 
-    def _clear_status(self):
-        """Clear the status line."""
-        if self._status_line:
-            sys.stdout.write(f"\r\033[s\033[1A\033[K\033[u")
+    def _clear_recording_ui(self):
+        """Clear the recording UI."""
+        if self._recording_display_active:
+            # Save cursor, clear the 2 lines we used, restore cursor
+            sys.stdout.write("\033[s")
+            sys.stdout.write("\033[2A")
+            sys.stdout.write("\033[K\n\033[K")
+            sys.stdout.write("\033[u")
             sys.stdout.flush()
-            self._status_line = ""
+            self._recording_display_active = False
 
     def _setup_terminal(self):
         """Set terminal to raw mode."""
@@ -197,8 +217,8 @@ class ClaudeWrapper:
                     result = await self._voice.toggle()
 
                     if result:
-                        # Insert transcribed text into Claude Code
-                        self.child.send(result)
+                        # Insert final transcribed text into Claude Code
+                        self.child.send(result.encode('utf-8'))
 
                     # Remove Ctrl+R from data and send the rest
                     data = data.replace(CTRL_R, b"")

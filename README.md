@@ -4,7 +4,13 @@ Speech-to-text wrapper for Claude Code. Talk to Claude using your voice.
 
 ## Overview
 
-Shannon wraps Claude Code and adds voice input capability. Press **Ctrl+R** to start/stop voice recording. Your speech is transcribed in real-time using OpenAI's Realtime API and inserted into Claude Code's input.
+Shannon wraps Claude Code and adds voice input capability. Press **Ctrl+R** to start/stop voice recording. Your speech is transcribed in real-time using OpenAI's Realtime API with `gpt-4o-transcribe` and inserted into Claude Code's input.
+
+## Features
+
+- **Real-time transcription**: Text appears as you speak (updates every ~1.5 seconds)
+- **Streaming display**: See your transcription in a status line while recording
+- **Seamless integration**: All keyboard input passes through to Claude Code
 
 ## Requirements
 
@@ -20,24 +26,21 @@ Shannon wraps Claude Code and adds voice input capability. Press **Ctrl+R** to s
 git clone https://github.com/william-wei-zhu/shannon
 cd shannon
 
-# Install in development mode
+# Create virtual environment and install
+python3 -m venv venv
+source venv/bin/activate
 pip install -e .
 
 # Set your OpenAI API key
 export OPENAI_API_KEY=sk-your-key-here
 ```
 
-Or install directly from the repository:
-
-```bash
-pip install git+https://github.com/william-wei-zhu/shannon.git
-```
-
 ## Usage
 
-Run `shannon` instead of `claude`:
-
 ```bash
+# Activate the virtual environment
+source venv/bin/activate
+
 # Start Claude Code with voice input
 shannon
 
@@ -51,22 +54,16 @@ shannon --help
 ### Voice Input
 
 1. Press **Ctrl+R** to start recording
-2. Speak your message
+2. Speak your message - transcription appears in real-time
 3. Press **Ctrl+R** again to stop recording
-4. The transcribed text appears at your cursor
-5. Edit if needed, then press Enter to send
+4. The transcribed text is inserted into Claude Code's input
+5. Press Enter to send
 
-While recording, you'll see a status indicator:
+While recording, you'll see:
 ```
-[Recording] Hello, I want to create a function that...
+[Recording...] Speak now. Press Ctrl+R to stop.
+> your transcribed text appears here...
 ```
-
-### Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| Ctrl+R | Toggle voice recording |
-| All other keys | Passed through to Claude Code |
 
 ## Configuration
 
@@ -78,33 +75,24 @@ Set your OpenAI API key:
 export OPENAI_API_KEY=sk-your-key-here
 ```
 
-Or create a `.env` file in your working directory:
+Or create a `.env` file:
 
 ```
 OPENAI_API_KEY=sk-your-key-here
 ```
 
-### Optional
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SHANNON_SAMPLE_RATE` | 24000 | Audio sample rate (24kHz required by Realtime API) |
-
 ## How It Works
-
-Shannon creates a pseudo-terminal (PTY) that wraps Claude Code:
 
 1. **PTY Wrapper**: Uses `pexpect` to spawn Claude Code in a pseudo-terminal
 2. **Input Interception**: Captures Ctrl+R to toggle voice mode, passes all other input through
-3. **Audio Capture**: Uses `sounddevice` (PortAudio) to record from the microphone
-4. **Real-time Transcription**: Streams audio to OpenAI's Realtime API via WebSocket
-5. **Text Insertion**: Injects transcribed text into Claude Code's input buffer
+3. **Audio Capture**: Uses `sounddevice` (PortAudio) to record from the microphone at 24kHz mono
+4. **Real-time Transcription**: Streams audio to OpenAI Realtime API via WebSocket, using `gpt-4o-transcribe` for streaming deltas
+5. **Periodic Commits**: Audio is committed every 1.5 seconds for real-time text updates
+6. **Text Insertion**: Final transcribed text is injected into Claude Code's input buffer
 
 ## Troubleshooting
 
 ### "PortAudio not found"
-
-Install PortAudio:
 
 ```bash
 brew install portaudio
@@ -112,15 +100,11 @@ brew install portaudio
 
 ### "claude command not found"
 
-Install Claude Code:
-
 ```bash
 npm install -g @anthropic-ai/claude-code
 ```
 
 ### "OPENAI_API_KEY not found"
-
-Set your API key:
 
 ```bash
 export OPENAI_API_KEY=sk-your-key-here
@@ -134,6 +118,8 @@ Grant terminal app microphone access in System Preferences > Security & Privacy 
 
 ```bash
 # Install in development mode
+python3 -m venv venv
+source venv/bin/activate
 pip install -e .
 
 # Test audio capture

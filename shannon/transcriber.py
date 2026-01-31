@@ -8,7 +8,7 @@ from typing import Callable, Optional
 import websockets
 from websockets.asyncio.client import ClientConnection
 
-from shannon.config import get_api_key, REALTIME_API_URL, REALTIME_MODEL, SAMPLE_RATE
+from shannon.config import get_api_key, REALTIME_API_URL, REALTIME_MODEL, TRANSCRIPTION_MODEL
 
 
 class RealtimeTranscriber:
@@ -34,9 +34,10 @@ class RealtimeTranscriber:
         self._receive_task: Optional[asyncio.Task] = None
 
     async def connect(self):
-        """Connect to the OpenAI Realtime API."""
+        """Connect to the OpenAI Realtime API for transcription."""
         api_key = get_api_key()
 
+        # Use the realtime model with transcription enabled
         url = f"{REALTIME_API_URL}?model={REALTIME_MODEL}"
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -47,23 +48,23 @@ class RealtimeTranscriber:
         self._connected = True
         self._transcript = ""
 
-        # Configure the session for transcription only
+        # Configure the session for transcription
         await self._configure_session()
 
         # Start receiving messages
         self._receive_task = asyncio.create_task(self._receive_loop())
 
     async def _configure_session(self):
-        """Configure the session for input audio transcription."""
+        """Configure the session for streaming transcription."""
         config = {
             "type": "session.update",
             "session": {
-                "modalities": ["text"],
+                "modalities": ["text", "audio"],
                 "input_audio_format": "pcm16",
                 "input_audio_transcription": {
-                    "model": "whisper-1",
+                    "model": TRANSCRIPTION_MODEL,  # gpt-4o-transcribe for streaming deltas
                 },
-                "turn_detection": None,  # Manual mode - we control when to commit
+                "turn_detection": None,  # Manual commit for periodic updates
             },
         }
         await self._send(config)
@@ -132,16 +133,8 @@ class RealtimeTranscriber:
         if not self._connected:
             return
 
-        # Commit the audio buffer
+        # Commit the audio buffer - transcription events will follow automatically
         await self._send({"type": "input_audio_buffer.commit"})
-
-        # Create a response to trigger transcription processing
-        await self._send({
-            "type": "response.create",
-            "response": {
-                "modalities": ["text"],
-            }
-        })
 
     async def clear_audio(self):
         """Clear the audio buffer."""
@@ -177,7 +170,9 @@ class RealtimeTranscriber:
 
 
 class TranscriptionSession:
-    """Manages a complete transcription session with audio streaming."""
+    """Manages a transcription session with periodic commits for real-time streaming."""
+
+    COMMIT_INTERVAL = 1.5  # Commit every 1.5 seconds for real-time updates
 
     def __init__(
         self,
@@ -187,27 +182,48 @@ class TranscriptionSession:
         """Initialize the transcription session.
 
         Args:
-            on_text_update: Called with current transcript text as it updates.
+            on_text_update: Called with current transcript text as it updates in real-time.
             on_complete: Called when session ends with final transcript.
         """
         self.on_text_update = on_text_update
         self.on_complete = on_complete
 
         self._transcriber: Optional[RealtimeTranscriber] = None
-        self._current_text = ""
+        self._accumulated_text = ""  # Confirmed text from completed segments
+        self._pending_text = ""  # Current streaming text
         self._running = False
+        self._commit_task: Optional[asyncio.Task] = None
+        self._has_audio = False
 
     def _on_delta(self, delta: str):
-        """Handle incremental transcript updates."""
-        self._current_text += delta
+        """Handle incremental transcript updates (streaming)."""
+        self._pending_text += delta
+        full_text = self._accumulated_text + self._pending_text
         if self.on_text_update:
-            self.on_text_update(self._current_text)
+            self.on_text_update(full_text)
 
     def _on_done(self, text: str):
-        """Handle completed transcription."""
-        self._current_text = text
-        if self.on_text_update:
-            self.on_text_update(text)
+        """Handle completed transcription segment."""
+        if text:
+            # Add to accumulated text with space separator
+            if self._accumulated_text:
+                self._accumulated_text += " " + text
+            else:
+                self._accumulated_text = text
+            self._pending_text = ""
+            if self.on_text_update:
+                self.on_text_update(self._accumulated_text)
+
+    async def _periodic_commit(self):
+        """Commit audio periodically for real-time updates."""
+        try:
+            while self._running:
+                await asyncio.sleep(self.COMMIT_INTERVAL)
+                if self._running and self._transcriber and self._has_audio:
+                    await self._transcriber.commit_audio()
+                    self._has_audio = False
+        except asyncio.CancelledError:
+            pass
 
     async def start(self):
         """Start the transcription session."""
@@ -217,26 +233,44 @@ class TranscriptionSession:
         )
         await self._transcriber.connect()
         self._running = True
-        self._current_text = ""
+        self._accumulated_text = ""
+        self._pending_text = ""
+        self._has_audio = False
+
+        # Start periodic commit for real-time updates
+        self._commit_task = asyncio.create_task(self._periodic_commit())
 
     async def send_audio(self, audio_bytes: bytes):
         """Send audio data for transcription."""
         if self._transcriber and self._running:
             await self._transcriber.send_audio(audio_bytes)
+            self._has_audio = True
 
     async def stop(self) -> str:
         """Stop the session and return the final transcript."""
         self._running = False
 
+        # Cancel periodic commit
+        if self._commit_task:
+            self._commit_task.cancel()
+            try:
+                await self._commit_task
+            except asyncio.CancelledError:
+                pass
+            self._commit_task = None
+
         if self._transcriber:
             # Commit any remaining audio
-            await self._transcriber.commit_audio()
+            if self._has_audio:
+                await self._transcriber.commit_audio()
 
-            # Wait briefly for final transcription
-            await asyncio.sleep(0.5)
+            # Wait for final transcription
+            await asyncio.sleep(1.0)
 
             # Get final transcript
-            final_text = self._transcriber.get_transcript() or self._current_text
+            final_text = self._accumulated_text
+            if self._pending_text:
+                final_text += (" " if final_text else "") + self._pending_text
 
             # Disconnect
             await self._transcriber.disconnect()
@@ -245,9 +279,9 @@ class TranscriptionSession:
             if self.on_complete:
                 self.on_complete(final_text)
 
-            return final_text
+            return final_text.strip()
 
-        return self._current_text
+        return self._accumulated_text
 
     def is_running(self) -> bool:
         """Check if session is running."""
@@ -255,4 +289,4 @@ class TranscriptionSession:
 
     def get_current_text(self) -> str:
         """Get the current transcript text."""
-        return self._current_text
+        return self._accumulated_text + self._pending_text

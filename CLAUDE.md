@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Shannon is a speech-to-text wrapper CLI for Claude Code. It spawns Claude Code in a PTY and intercepts Ctrl+R to toggle voice recording. Speech is transcribed via OpenAI's Realtime API and inserted into Claude Code's input.
+Shannon is a speech-to-text wrapper CLI for Claude Code. It spawns Claude Code in a PTY and intercepts Ctrl+R to toggle voice recording. Speech is transcribed in real-time via OpenAI's Realtime API using `gpt-4o-transcribe` and inserted into Claude Code's input.
 
 **Platform**: macOS only (uses PortAudio for audio capture)
 
@@ -30,9 +30,13 @@ The data flow is: **User Input → PTY Wrapper → Claude Code**, with voice inp
 ```
 Ctrl+R pressed → AudioRecorder starts → chunks stream to TranscriptionSession
                                                     ↓
-                                          OpenAI Realtime API (WebSocket)
+                                    OpenAI Realtime API (WebSocket)
+                                    - Periodic commits every 1.5s
+                                    - gpt-4o-transcribe for streaming deltas
                                                     ↓
-Ctrl+R pressed → transcribed text inserted into PTY → Claude Code receives it
+                            Real-time UI shows transcript as it streams
+                                                    ↓
+Ctrl+R pressed → final text inserted into PTY → Claude Code receives it
 ```
 
 ### Key Components
@@ -40,7 +44,7 @@ Ctrl+R pressed → transcribed text inserted into PTY → Claude Code receives i
 - **`cli.py`**: Entry point. Checks dependencies (sounddevice, API key, claude command), creates `ClaudeWrapper`, runs async event loop.
 
 - **`wrapper.py`**: Core PTY management.
-  - `ClaudeWrapper`: Spawns Claude Code via pexpect, sets terminal to raw mode, runs concurrent input/output handlers
+  - `ClaudeWrapper`: Spawns Claude Code via pexpect, sets terminal to raw mode, runs concurrent input/output handlers, displays recording UI
   - `VoiceInputManager`: Coordinates audio recording and transcription, manages toggle state
   - Intercepts `CTRL_R` (0x12) from input stream, passes everything else through
 
@@ -51,15 +55,15 @@ Ctrl+R pressed → transcribed text inserted into PTY → Claude Code receives i
 
 - **`transcriber.py`**: OpenAI Realtime API client.
   - `RealtimeTranscriber`: WebSocket connection, sends base64-encoded audio, receives transcription events
-  - `TranscriptionSession`: Higher-level wrapper managing the full record→transcribe→return flow
-  - Uses Whisper-1 for transcription via `input_audio_transcription` config
+  - `TranscriptionSession`: Manages periodic commits (every 1.5s) for real-time updates, accumulates transcript segments
+  - Uses `gpt-4o-transcribe` for true streaming deltas (text appears character by character)
 
-- **`config.py`**: Loads `OPENAI_API_KEY` from environment or `.env` file, defines audio constants.
+- **`config.py`**: Loads `OPENAI_API_KEY` from environment or `.env` file, defines audio and API constants.
 
-### Async Pattern
+### Real-time Transcription Flow
 
-The wrapper runs two concurrent tasks:
-1. `_handle_input()`: Reads from stdin, intercepts Ctrl+R, forwards to PTY
-2. `_handle_output()`: Reads from PTY (non-blocking), writes to stdout
-
-Voice recording spawns a third task (`_stream_audio()`) that continuously sends audio chunks to the WebSocket.
+1. Audio chunks are continuously sent to the Realtime API via WebSocket
+2. Every 1.5 seconds, the audio buffer is committed to trigger transcription
+3. `gpt-4o-transcribe` returns streaming deltas (incremental text)
+4. UI updates in real-time as deltas arrive
+5. When recording stops, final commit captures remaining audio

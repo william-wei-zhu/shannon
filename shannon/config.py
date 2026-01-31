@@ -1,9 +1,7 @@
 """Configuration management for Shannon."""
 
 import os
-from pathlib import Path
 from dotenv import load_dotenv
-
 
 # Load .env file from current directory or parent directories
 load_dotenv()
@@ -26,9 +24,7 @@ CHANNELS = 1  # Mono audio
 CHUNK_DURATION_MS = 100  # Send audio every 100ms
 CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION_MS / 1000)  # Samples per chunk
 
-# Toggle key for voice input
-TOGGLE_KEY = os.environ.get("SHANNON_TOGGLE_KEY", "ctrl+r")
-
 # OpenAI Realtime API settings
 REALTIME_MODEL = "gpt-4o-realtime-preview-2024-12-17"
 REALTIME_API_URL = "wss://api.openai.com/v1/realtime"
+TRANSCRIPTION_MODEL = "gpt-4o-transcribe"  # Supports streaming deltas

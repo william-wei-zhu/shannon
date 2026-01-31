@@ -31,12 +31,14 @@ The data flow is: **User Input → PTY Wrapper → Claude Code**, with voice inp
 Ctrl+R pressed → AudioRecorder starts → chunks stream to TranscriptionSession
                                                     ↓
                                     OpenAI Realtime API (WebSocket)
-                                    - Periodic commits every 1.5s
+                                    - Periodic commits every 3s
                                     - gpt-4o-transcribe for streaming deltas
                                                     ↓
                             Real-time UI shows transcript as it streams
                                                     ↓
-Ctrl+R pressed → final text inserted into PTY → Claude Code receives it
+Ctrl+R pressed → GPT-4o post-processes (removes filler words, fixes errors)
+                                                    ↓
+                    Final text inserted into PTY → Claude Code receives it
 ```
 
 ### Key Components
@@ -55,15 +57,21 @@ Ctrl+R pressed → final text inserted into PTY → Claude Code receives it
 
 - **`transcriber.py`**: OpenAI Realtime API client.
   - `RealtimeTranscriber`: WebSocket connection, sends base64-encoded audio, receives transcription events
-  - `TranscriptionSession`: Manages periodic commits (every 1.5s) for real-time updates, accumulates transcript segments
+  - `TranscriptionSession`: Manages periodic commits (every 3s) for real-time updates, accumulates transcript segments
+  - `postprocess_transcript()`: GPT-4o cleans up final transcript (removes filler words, fixes errors, removes trailing artifacts)
   - Uses `gpt-4o-transcribe` for true streaming deltas (text appears character by character)
 
-- **`config.py`**: Loads `OPENAI_API_KEY` from environment or `.env` file, defines audio and API constants.
+- **`config.py`**: Configuration management.
+  - Loads `OPENAI_API_KEY` from environment or `.env` file
+  - `SHANNON_LANGUAGE`: Language hint for transcription (default: `en`)
+  - `SHANNON_POSTPROCESS`: Enable/disable GPT-4o cleanup (default: `true`)
+  - Audio constants: 24kHz sample rate, mono, 100ms chunks
 
 ### Real-time Transcription Flow
 
 1. Audio chunks are continuously sent to the Realtime API via WebSocket
-2. Every 1.5 seconds, the audio buffer is committed to trigger transcription
+2. Every 3 seconds, the audio buffer is committed to trigger transcription
 3. `gpt-4o-transcribe` returns streaming deltas (incremental text)
 4. UI updates in real-time as deltas arrive
 5. When recording stops, final commit captures remaining audio
+6. GPT-4o post-processes the transcript (removes filler words like "um", "uh", fixes errors, removes trailing artifacts)

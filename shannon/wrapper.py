@@ -229,11 +229,11 @@ class ClaudeWrapper:
 
         # ALWAYS clear old UI first if active (fixes growing UI bug)
         if self._recording_display_active and self._ui_lines_used > 0:
-            sys.stdout.write("\033[s")  # Save cursor
+            sys.stdout.write("\0337")  # Save cursor (DEC DECSC)
             sys.stdout.write(f"\033[{self._ui_lines_used}A")  # Move up
             for _ in range(self._ui_lines_used):
                 sys.stdout.write("\033[2K\n")  # Clear ENTIRE line, move down
-            sys.stdout.write("\033[u")  # Restore cursor
+            sys.stdout.write("\0338")  # Restore cursor (DEC DECRC)
 
         # If we need more lines than before, create space by printing newlines
         # This pushes cursor down so UI expands downward, not upward into previous content
@@ -242,7 +242,7 @@ class ClaudeWrapper:
             sys.stdout.write("\n" * extra_lines)
 
         # Save cursor position
-        sys.stdout.write("\033[s")
+        sys.stdout.write("\0337")  # DEC DECSC
 
         # Move up to start of UI area
         sys.stdout.write(f"\033[{total_lines}A")
@@ -258,7 +258,7 @@ class ClaudeWrapper:
             sys.stdout.write(f"\r\033[93m{line_prefix}{line}\033[0m")
 
         # Restore cursor position
-        sys.stdout.write("\033[u")
+        sys.stdout.write("\0338")  # DEC DECRC
         sys.stdout.flush()
 
         self._ui_lines_used = total_lines

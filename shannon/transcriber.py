@@ -336,6 +336,8 @@ Rules:
 - Fix obvious transcription errors (misheard words)
 - Fix clear grammar mistakes
 - Remove nonsensical trailing words (artifacts from audio cutoff)
+- If the last few words or phrase don't make sense compared to the rest of the transcript, remove them (likely noise/silence artifacts)
+- NEVER add any words, phrases, or commentary that weren't in the original transcript
 - NEVER substitute one valid phrase for another valid phrase
 - NEVER rephrase or "improve" the wording
 - Preserve the speaker's exact word choices and phrasing

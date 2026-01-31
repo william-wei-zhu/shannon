@@ -1,151 +1,122 @@
 # Shannon
 
-Speech-to-text wrapper for Claude Code. Talk to Claude using your voice.
+**Talk to Claude Code using your voice.** Shannon is a speech-to-text wrapper that adds voice input to Claude Code. Press Ctrl+R, speak, and your words appear as text.
 
-## Overview
-
-Shannon wraps Claude Code and adds voice input capability. Press **Ctrl+R** to start/stop voice recording. Your speech is transcribed in real-time using OpenAI's Realtime API with `gpt-4o-transcribe` and inserted into Claude Code's input.
-
-## Features
-
-- **Real-time transcription**: Text appears as you speak (updates every ~3 seconds)
-- **Post-processing**: GPT-4o cleans up transcription errors, grammar, and filler words
-- **Language hints**: Specify input language for improved accuracy
-- **Dynamic display**: Transcript area adapts to terminal height
-- **Seamless integration**: All keyboard input passes through to Claude Code
-
-## Requirements
-
-- **macOS** (uses PortAudio for audio capture)
-- **Python 3.10+**
-- **Claude Code** installed and available as `claude` command
-- **OpenAI API key** with access to the Realtime API
-
-## Installation
+## Quick Start
 
 ```bash
-# Clone the repository
+# 1. Install PortAudio (required for microphone access)
+brew install portaudio
+
+# 2. Clone and install Shannon
 git clone https://github.com/william-wei-zhu/shannon
 cd shannon
-
-# Create virtual environment and install
 python3 -m venv venv
 source venv/bin/activate
 pip install -e .
 
-# Set your OpenAI API key
+# 3. Set your OpenAI API key
 export OPENAI_API_KEY=sk-your-key-here
-```
 
-## Usage
-
-```bash
-# Activate the virtual environment
-source venv/bin/activate
-
-# Start Claude Code with voice input
+# 4. Run Shannon
 shannon
-
-# Pass arguments to Claude Code
-shannon -p "help me write a function"
-
-# Show Shannon help
-shannon --help
 ```
 
-### Voice Input
+That's it! Press **Ctrl+R** to start/stop voice recording.
 
-1. Press **Ctrl+R** to start recording
-2. Speak your message - transcription appears in real-time
-3. Press **Ctrl+R** again to stop recording
-4. The transcribed text is inserted into Claude Code's input
-5. Press Enter to send
+## Requirements
 
-While recording, you'll see:
-```
-[Recording...] Speak now. Press Ctrl+R to stop.
-> your transcribed text appears here...
-```
+| Requirement | How to get it |
+|-------------|---------------|
+| macOS | Required for PortAudio audio capture |
+| Python 3.10+ | `brew install python` or [python.org](https://python.org) |
+| PortAudio | `brew install portaudio` |
+| Claude Code | `npm install -g @anthropic-ai/claude-code` |
+| OpenAI API key | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
+
+## How to Use
+
+1. **Start Shannon** - Run `shannon` (this launches Claude Code with voice support)
+2. **Press Ctrl+R** - Start recording, you'll see:
+   ```
+   [Recording...] Speak now. Press Ctrl+R to stop.
+   > your transcribed text appears here...
+   ```
+3. **Speak** - Your speech is transcribed in real-time
+4. **Press Ctrl+R again** - Stop recording, text is inserted into Claude Code
+5. **Press Enter** - Send your message to Claude
+
+All other keyboard shortcuts work normally - Shannon just adds voice input on top.
 
 ## Configuration
 
-### Required
+### Required: OpenAI API Key
 
-Set your OpenAI API key:
-
+Set via environment variable:
 ```bash
 export OPENAI_API_KEY=sk-your-key-here
 ```
 
-Or create a `.env` file:
-
+Or create a `.env` file in the shannon directory:
 ```
 OPENAI_API_KEY=sk-your-key-here
 ```
 
-### Optional
+### Optional Settings
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SHANNON_LANGUAGE` | `en` | Language hint for transcription (ISO-639-1 code: `en`, `es`, `zh`, `ja`, etc.) |
-| `SHANNON_POSTPROCESS` | `true` | Enable GPT-4o post-processing to fix transcription errors |
-
-Example:
+| `SHANNON_LANGUAGE` | `en` | Language hint for transcription (ISO-639-1: `en`, `es`, `zh`, `ja`, etc.) |
+| `SHANNON_POSTPROCESS` | `true` | GPT-4o cleans up transcription errors, grammar, and filler words |
 
 ```bash
-# For Spanish transcription without post-processing
+# Example: Spanish transcription without post-processing
 export SHANNON_LANGUAGE=es
 export SHANNON_POSTPROCESS=false
 ```
 
-## How It Works
+## Features
 
-1. **PTY Wrapper**: Uses `pexpect` to spawn Claude Code in a pseudo-terminal
-2. **Input Interception**: Captures Ctrl+R to toggle voice mode, passes all other input through
-3. **Audio Capture**: Uses `sounddevice` (PortAudio) to record from the microphone at 24kHz mono
-4. **Real-time Transcription**: Streams audio to OpenAI Realtime API via WebSocket, using `gpt-4o-transcribe` for streaming deltas
-5. **Periodic Commits**: Audio is committed every 3 seconds for real-time text updates
-6. **Post-processing**: When recording stops, GPT-4o cleans up the transcript (fixes errors, grammar, removes filler words)
-7. **Text Insertion**: Final cleaned text is injected into Claude Code's input buffer
+- **Real-time transcription** - Text appears as you speak (updates every ~3 seconds)
+- **Smart cleanup** - GPT-4o fixes transcription errors, grammar, and removes filler words
+- **Multi-language** - Support for any language via language hints
+- **Seamless** - All keyboard input passes through to Claude Code normally
 
 ## Troubleshooting
 
 ### "PortAudio not found"
-
 ```bash
 brew install portaudio
 ```
 
 ### "claude command not found"
-
 ```bash
 npm install -g @anthropic-ai/claude-code
 ```
 
 ### "OPENAI_API_KEY not found"
-
 ```bash
 export OPENAI_API_KEY=sk-your-key-here
 ```
 
 ### Microphone not working
+Grant microphone access: **System Settings > Privacy & Security > Microphone** and enable your terminal app.
 
-Grant terminal app microphone access in System Preferences > Security & Privacy > Privacy > Microphone.
-
-## Development
-
+### Audio test
 ```bash
-# Install in development mode
-python3 -m venv venv
 source venv/bin/activate
-pip install -e .
-
-# Test audio capture
 python -c "from shannon.audio import test_audio; test_audio()"
-
-# Run Shannon
-shannon
 ```
+
+## How It Works
+
+Shannon spawns Claude Code in a pseudo-terminal and intercepts the Ctrl+R key:
+
+1. **Ctrl+R pressed** - Starts recording audio from microphone (24kHz mono)
+2. **Audio streaming** - Chunks are sent to OpenAI Realtime API via WebSocket
+3. **Live transcription** - `gpt-4o-transcribe` returns text as you speak
+4. **Ctrl+R pressed again** - Recording stops, GPT-4o cleans up the transcript
+5. **Text inserted** - Final text appears in Claude Code's input
 
 ## License
 

@@ -41,7 +41,7 @@ Ctrl+R pressed → final text inserted into PTY → Claude Code receives it
 
 ### Key Components
 
-- **`cli.py`**: Entry point. Checks dependencies (sounddevice, API key, claude command), creates `ClaudeWrapper`, runs async event loop.
+- **`cli.py`**: Entry point. Displays startup banner, checks dependencies (sounddevice, API key, claude command), creates `ClaudeWrapper`, runs async event loop.
 
 - **`wrapper.py`**: Core PTY management.
   - `ClaudeWrapper`: Spawns Claude Code via pexpect, sets terminal to raw mode, runs concurrent input/output handlers, displays recording UI

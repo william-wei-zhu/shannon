@@ -11,6 +11,7 @@ Shannon wraps Claude Code and adds voice input capability. Press **Ctrl+R** to s
 - **Real-time transcription**: Text appears as you speak (updates every ~1.5 seconds)
 - **Streaming display**: See your transcription in a status line while recording
 - **Seamless integration**: All keyboard input passes through to Claude Code
+- **Colorful startup banner**: Bold ASCII art logo on launch
 
 ## Requirements
 

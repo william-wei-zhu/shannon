@@ -117,6 +117,10 @@ class VoiceInputManager:
             return None
 
 
+# Max lines for transcript display (plus 1 for status line)
+MAX_TRANSCRIPT_LINES = 6
+
+
 class ClaudeWrapper:
     """Wraps Claude Code with PTY and handles voice input."""
 
@@ -132,6 +136,7 @@ class ClaudeWrapper:
         self._running = False
         self._recording_display_active = False
         self._last_transcript = ""
+        self._ui_lines_used = 0
 
     def _on_recording_change(self, recording: bool):
         """Handle recording state changes."""
@@ -147,41 +152,112 @@ class ClaudeWrapper:
             self._last_transcript = text
             self._show_recording_ui(text)
 
+    def _wrap_text(self, text: str, width: int) -> list[str]:
+        """Wrap text to specified width, returning list of lines."""
+        if not text or width <= 0:
+            return []
+
+        lines = []
+        words = text.split()
+        current_line = ""
+
+        for word in words:
+            if not current_line:
+                # Start new line
+                if len(word) <= width:
+                    current_line = word
+                else:
+                    # Word is longer than width, split it
+                    while len(word) > width:
+                        lines.append(word[:width])
+                        word = word[width:]
+                    current_line = word
+            elif len(current_line) + 1 + len(word) <= width:
+                # Word fits on current line
+                current_line += " " + word
+            else:
+                # Word doesn't fit, start new line
+                lines.append(current_line)
+                if len(word) <= width:
+                    current_line = word
+                else:
+                    # Word is longer than width, split it
+                    while len(word) > width:
+                        lines.append(word[:width])
+                        word = word[width:]
+                    current_line = word
+
+        if current_line:
+            lines.append(current_line)
+
+        return lines
+
     def _show_recording_ui(self, transcript: str):
         """Show recording UI with transcript below status line."""
+        # Get terminal width
+        try:
+            cols = os.get_terminal_size().columns
+        except OSError:
+            cols = 80
+
+        # Calculate available width for transcript (accounting for "> " prefix)
+        prefix = "> "
+        continuation_prefix = "  "
+        available_width = cols - len(prefix)
+
+        # Wrap transcript text
+        wrapped_lines = self._wrap_text(transcript, available_width) if transcript else []
+
+        # Limit to MAX_TRANSCRIPT_LINES, keeping most recent lines
+        if len(wrapped_lines) > MAX_TRANSCRIPT_LINES:
+            wrapped_lines = wrapped_lines[-MAX_TRANSCRIPT_LINES:]
+
+        # Total lines: 1 status + transcript lines
+        total_lines = 1 + len(wrapped_lines)
+
+        # ALWAYS clear old UI first if active (fixes growing UI bug)
+        if self._recording_display_active and self._ui_lines_used > 0:
+            sys.stdout.write("\033[s")  # Save cursor
+            sys.stdout.write(f"\033[{self._ui_lines_used}A")  # Move up
+            for _ in range(self._ui_lines_used):
+                sys.stdout.write("\033[2K\n")  # Clear ENTIRE line, move down
+            sys.stdout.write("\033[u")  # Restore cursor
+
         # Save cursor position
         sys.stdout.write("\033[s")
 
-        # Move up 2 lines and clear them
-        sys.stdout.write("\033[2A")
-        sys.stdout.write("\033[K")  # Clear line 1
+        # Move up to start of UI area
+        sys.stdout.write(f"\033[{total_lines}A")
 
-        # Show status line
+        # Show status line (clear entire line first)
+        sys.stdout.write("\033[2K")
         sys.stdout.write("\r\033[91m[Recording...]\033[0m Speak now. Press \033[1mCtrl+R\033[0m to stop.")
 
-        # Move to next line and show transcript
-        sys.stdout.write("\n\033[K")  # Clear line 2
-        if transcript:
-            # Truncate if too long for display
-            max_len = 70
-            display_text = transcript if len(transcript) <= max_len else "..." + transcript[-(max_len-3):]
-            sys.stdout.write(f"\r\033[93m> {display_text}\033[0m")
+        # Show transcript lines
+        for i, line in enumerate(wrapped_lines):
+            sys.stdout.write("\n\033[2K")  # Move down and clear ENTIRE line
+            line_prefix = prefix if i == 0 else continuation_prefix
+            sys.stdout.write(f"\r\033[93m{line_prefix}{line}\033[0m")
 
         # Restore cursor position
         sys.stdout.write("\033[u")
         sys.stdout.flush()
+
+        self._ui_lines_used = total_lines
         self._recording_display_active = True
 
     def _clear_recording_ui(self):
         """Clear the recording UI."""
-        if self._recording_display_active:
-            # Save cursor, clear the 2 lines we used, restore cursor
-            sys.stdout.write("\033[s")
-            sys.stdout.write("\033[2A")
-            sys.stdout.write("\033[K\n\033[K")
-            sys.stdout.write("\033[u")
+        if self._recording_display_active and self._ui_lines_used > 0:
+            # Save cursor, clear all lines we used, restore cursor
+            sys.stdout.write("\033[s")  # Save cursor
+            sys.stdout.write(f"\033[{self._ui_lines_used}A")  # Move up
+            for _ in range(self._ui_lines_used):
+                sys.stdout.write("\033[2K\n")  # Clear ENTIRE line
+            sys.stdout.write("\033[u")  # Restore cursor
             sys.stdout.flush()
             self._recording_display_active = False
+            self._ui_lines_used = 0
 
     def _setup_terminal(self):
         """Set terminal to raw mode."""
@@ -288,10 +364,6 @@ class ClaudeWrapper:
         self._setup_terminal()
 
         try:
-            # Print help message
-            sys.stdout.write("\r\n\033[90m[Shannon] Press Ctrl+R to toggle voice input\033[0m\r\n")
-            sys.stdout.flush()
-
             # Run input and output handlers concurrently
             await asyncio.gather(
                 self._handle_input(),

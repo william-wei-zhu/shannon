@@ -7,6 +7,19 @@ from shannon.config import get_api_key
 from shannon.wrapper import ClaudeWrapper
 
 
+def print_banner():
+    """Print Shannon startup banner."""
+    print("\033[1;93m   ███████╗██╗  ██╗ █████╗ ███╗   ██╗███╗   ██╗ ██████╗ ███╗   ██╗\033[0m")
+    print("\033[1;93m   ██╔════╝██║  ██║██╔══██╗████╗  ██║████╗  ██║██╔═══██╗████╗  ██║\033[0m")
+    print("\033[1;33m   ███████╗███████║███████║██╔██╗ ██║██╔██╗ ██║██║   ██║██╔██╗ ██║\033[0m")
+    print("\033[1;33m   ╚════██║██╔══██║██╔══██║██║╚██╗██║██║╚██╗██║██║   ██║██║╚██╗██║\033[0m")
+    print("\033[1;93m   ███████║██║  ██║██║  ██║██║ ╚████║██║ ╚████║╚██████╔╝██║ ╚████║\033[0m")
+    print("\033[1;93m   ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═══╝\033[0m")
+    print()
+    print("          \033[96m🎙️  Voice for Claude Code\033[0m  ·  \033[1mPress Ctrl+R to speak\033[0m")
+    print()
+
+
 def check_dependencies():
     """Check that required dependencies are available."""
     errors = []
@@ -81,6 +94,9 @@ def main():
             print(f"  - {error}", file=sys.stderr)
         print("\nPlease resolve these issues and try again.", file=sys.stderr)
         return 1
+
+    # Show banner
+    print_banner()
 
     # Get arguments to pass to Claude
     claude_args = sys.argv[1:]

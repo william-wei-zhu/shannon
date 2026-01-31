@@ -67,7 +67,7 @@ OPENAI_API_KEY=sk-your-key-here
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SHANNON_LANGUAGE` | `en` | Language hint for transcription (ISO-639-1: `en`, `es`, `zh`, `ja`, etc.) |
-| `SHANNON_POSTPROCESS` | `true` | GPT-4o cleans up transcription errors, grammar, and filler words |
+| `SHANNON_POSTPROCESS` | `true` | GPT-4o removes filler words and fixes errors while preserving exact wording |
 
 ```bash
 # Example: Spanish transcription without post-processing
@@ -78,7 +78,7 @@ export SHANNON_POSTPROCESS=false
 ## Features
 
 - **Real-time transcription** - Text appears as you speak (updates every ~3 seconds)
-- **Smart cleanup** - GPT-4o fixes transcription errors, grammar, and removes filler words
+- **Smart cleanup** - GPT-4o removes filler words and trailing artifacts while preserving your exact wording
 - **Multi-language** - Support for any language via language hints
 - **Seamless** - All keyboard input passes through to Claude Code normally
 

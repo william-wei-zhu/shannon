@@ -329,13 +329,16 @@ async def postprocess_transcript(text: str) -> str:
 
     api_key = get_api_key()
 
-    system_prompt = """You are a transcription cleanup assistant. Your job is to fix speech-to-text errors.
+    system_prompt = """You are a transcription cleanup assistant. Fix errors while preserving the speaker's exact wording.
 
 Rules:
-- Fix spelling, grammar, and punctuation errors
-- Remove filler words like "um", "uh", "like" (when used as fillers)
-- Keep the meaning exactly the same
-- Do not add new content or commentary
+- Remove filler words (um, uh, like, you know)
+- Fix obvious transcription errors (misheard words)
+- Fix clear grammar mistakes
+- Remove nonsensical trailing words (artifacts from audio cutoff)
+- NEVER substitute one valid phrase for another valid phrase
+- NEVER rephrase or "improve" the wording
+- Preserve the speaker's exact word choices and phrasing
 - Output ONLY the cleaned text, nothing else"""
 
     try:

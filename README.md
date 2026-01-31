@@ -8,10 +8,11 @@ Shannon wraps Claude Code and adds voice input capability. Press **Ctrl+R** to s
 
 ## Features
 
-- **Real-time transcription**: Text appears as you speak (updates every ~1.5 seconds)
-- **Streaming display**: See your transcription in a status line while recording
+- **Real-time transcription**: Text appears as you speak (updates every ~3 seconds)
+- **Post-processing**: GPT-4o cleans up transcription errors, grammar, and filler words
+- **Language hints**: Specify input language for improved accuracy
+- **Dynamic display**: Transcript area adapts to terminal height
 - **Seamless integration**: All keyboard input passes through to Claude Code
-- **Colorful startup banner**: Bold ASCII art logo on launch
 
 ## Requirements
 
@@ -82,14 +83,30 @@ Or create a `.env` file:
 OPENAI_API_KEY=sk-your-key-here
 ```
 
+### Optional
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SHANNON_LANGUAGE` | `en` | Language hint for transcription (ISO-639-1 code: `en`, `es`, `zh`, `ja`, etc.) |
+| `SHANNON_POSTPROCESS` | `true` | Enable GPT-4o post-processing to fix transcription errors |
+
+Example:
+
+```bash
+# For Spanish transcription without post-processing
+export SHANNON_LANGUAGE=es
+export SHANNON_POSTPROCESS=false
+```
+
 ## How It Works
 
 1. **PTY Wrapper**: Uses `pexpect` to spawn Claude Code in a pseudo-terminal
 2. **Input Interception**: Captures Ctrl+R to toggle voice mode, passes all other input through
 3. **Audio Capture**: Uses `sounddevice` (PortAudio) to record from the microphone at 24kHz mono
 4. **Real-time Transcription**: Streams audio to OpenAI Realtime API via WebSocket, using `gpt-4o-transcribe` for streaming deltas
-5. **Periodic Commits**: Audio is committed every 1.5 seconds for real-time text updates
-6. **Text Insertion**: Final transcribed text is injected into Claude Code's input buffer
+5. **Periodic Commits**: Audio is committed every 3 seconds for real-time text updates
+6. **Post-processing**: When recording stops, GPT-4o cleans up the transcript (fixes errors, grammar, removes filler words)
+7. **Text Insertion**: Final cleaned text is injected into Claude Code's input buffer
 
 ## Troubleshooting
 

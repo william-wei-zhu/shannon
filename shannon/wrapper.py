@@ -5,6 +5,7 @@ import os
 import signal
 import sys
 import termios
+import time
 import tty
 from typing import List, Optional
 
@@ -117,12 +118,18 @@ class VoiceInputManager:
             return None
 
 
-# Max lines for transcript display (plus 1 for status line)
-MAX_TRANSCRIPT_LINES = 6
-
-
 class ClaudeWrapper:
     """Wraps Claude Code with PTY and handles voice input."""
+
+    def _get_max_transcript_lines(self) -> int:
+        """Calculate max transcript lines based on terminal size."""
+        try:
+            rows, _ = os.get_terminal_size()
+        except OSError:
+            rows = 24
+        # Reserve 4 rows: 1 for status line, 3 for prompt/safety margin
+        # Minimum of 3 lines to always show something useful
+        return max(3, rows - 4)
 
     def __init__(self, claude_args: List[str]):
         self.claude_args = claude_args
@@ -137,14 +144,17 @@ class ClaudeWrapper:
         self._recording_display_active = False
         self._last_transcript = ""
         self._ui_lines_used = 0
+        self._pause_output = False  # Pause Claude Code output during voice processing
 
     def _on_recording_change(self, recording: bool):
         """Handle recording state changes."""
         if recording:
+            self._pause_output = True  # Pause Claude Code output while recording
             self._last_transcript = ""
             self._show_recording_ui("")
         else:
             self._clear_recording_ui()
+            # Note: _pause_output stays True until text is sent to Claude Code
 
     def _on_transcript_update(self, text: str):
         """Handle real-time transcript updates - show in UI."""
@@ -209,9 +219,10 @@ class ClaudeWrapper:
         # Wrap transcript text
         wrapped_lines = self._wrap_text(transcript, available_width) if transcript else []
 
-        # Limit to MAX_TRANSCRIPT_LINES, keeping most recent lines
-        if len(wrapped_lines) > MAX_TRANSCRIPT_LINES:
-            wrapped_lines = wrapped_lines[-MAX_TRANSCRIPT_LINES:]
+        # Dynamic limit based on terminal height, keeping most recent lines
+        max_lines = self._get_max_transcript_lines()
+        if len(wrapped_lines) > max_lines:
+            wrapped_lines = wrapped_lines[-max_lines:]
 
         # Total lines: 1 status + transcript lines
         total_lines = 1 + len(wrapped_lines)
@@ -223,6 +234,12 @@ class ClaudeWrapper:
             for _ in range(self._ui_lines_used):
                 sys.stdout.write("\033[2K\n")  # Clear ENTIRE line, move down
             sys.stdout.write("\033[u")  # Restore cursor
+
+        # If we need more lines than before, create space by printing newlines
+        # This pushes cursor down so UI expands downward, not upward into previous content
+        if total_lines > self._ui_lines_used:
+            extra_lines = total_lines - self._ui_lines_used
+            sys.stdout.write("\n" * extra_lines)
 
         # Save cursor position
         sys.stdout.write("\033[s")
@@ -250,15 +267,23 @@ class ClaudeWrapper:
     def _clear_recording_ui(self):
         """Clear the recording UI."""
         if self._recording_display_active and self._ui_lines_used > 0:
+            # Reset terminal state and colors first
+            sys.stdout.write("\033[0m")  # Reset all attributes
             # Move up to start of UI area
             sys.stdout.write(f"\033[{self._ui_lines_used}A")
             # Clear each line and move back down
             for _ in range(self._ui_lines_used):
                 sys.stdout.write("\033[2K\n")  # Clear ENTIRE line, move down
-            # Cursor is now back where it started (after the UI area)
+            # Move cursor back up to original position (before we printed newlines for UI space)
+            sys.stdout.write(f"\033[{self._ui_lines_used}A")
+            # Reset terminal state again to ensure clean state for Claude Code
+            sys.stdout.write("\033[0m\033[?25h")  # Reset attributes + show cursor
             sys.stdout.flush()
             self._recording_display_active = False
             self._ui_lines_used = 0
+
+            # Small delay to ensure terminal processes the clear commands
+            time.sleep(0.1)
 
     def _setup_terminal(self):
         """Set terminal to raw mode."""
@@ -297,6 +322,9 @@ class ClaudeWrapper:
                         # Insert final transcribed text into Claude Code
                         self.child.send(result.encode('utf-8'))
 
+                    # Resume Claude Code output now that text is sent
+                    self._pause_output = False
+
                     # Remove Ctrl+R from data and send the rest
                     data = data.replace(CTRL_R, b"")
                     if data:
@@ -315,6 +343,11 @@ class ClaudeWrapper:
                 # Use pexpect's read with timeout
                 data = self.child.read_nonblocking(size=4096, timeout=0.05)
                 if data:
+                    # Skip output while voice input is being processed
+                    # This prevents Claude Code's cursor movements from corrupting display
+                    if self._pause_output:
+                        continue
+
                     # Write to stdout
                     if isinstance(data, bytes):
                         sys.stdout.buffer.write(data)

@@ -8,7 +8,17 @@ from typing import Callable, Optional
 import websockets
 from websockets.asyncio.client import ClientConnection
 
-from shannon.config import get_api_key, REALTIME_API_URL, REALTIME_MODEL, TRANSCRIPTION_MODEL
+import httpx
+
+from shannon.config import (
+    get_api_key,
+    REALTIME_API_URL,
+    REALTIME_MODEL,
+    TRANSCRIPTION_MODEL,
+    TRANSCRIPTION_LANGUAGE,
+    POSTPROCESS_ENABLED,
+    POSTPROCESS_MODEL,
+)
 
 
 class RealtimeTranscriber:
@@ -56,14 +66,19 @@ class RealtimeTranscriber:
 
     async def _configure_session(self):
         """Configure the session for streaming transcription."""
+        transcription_config = {
+            "model": TRANSCRIPTION_MODEL,  # gpt-4o-transcribe for streaming deltas
+        }
+        # Add language hint if configured (improves accuracy and latency)
+        if TRANSCRIPTION_LANGUAGE:
+            transcription_config["language"] = TRANSCRIPTION_LANGUAGE
+
         config = {
             "type": "session.update",
             "session": {
                 "modalities": ["text", "audio"],
                 "input_audio_format": "pcm16",
-                "input_audio_transcription": {
-                    "model": TRANSCRIPTION_MODEL,  # gpt-4o-transcribe for streaming deltas
-                },
+                "input_audio_transcription": transcription_config,
                 "turn_detection": None,  # Manual commit for periodic updates
             },
         }
@@ -172,7 +187,7 @@ class RealtimeTranscriber:
 class TranscriptionSession:
     """Manages a transcription session with periodic commits for real-time streaming."""
 
-    COMMIT_INTERVAL = 1.5  # Commit every 1.5 seconds for real-time updates
+    COMMIT_INTERVAL = 3.0  # Commit every 3 seconds (longer = better transcription quality)
 
     def __init__(
         self,
@@ -264,22 +279,27 @@ class TranscriptionSession:
             if self._has_audio:
                 await self._transcriber.commit_audio()
 
-            # Wait for final transcription
-            await asyncio.sleep(1.0)
+            # Wait for final transcription to complete
+            # Give enough time for the completed event to arrive
+            await asyncio.sleep(1.5)
 
-            # Get final transcript
+            # Get final transcript - use only accumulated text from completed events
+            # (pending_text from deltas can contain corrupted/overlapping fragments)
             final_text = self._accumulated_text
-            if self._pending_text:
-                final_text += (" " if final_text else "") + self._pending_text
 
             # Disconnect
             await self._transcriber.disconnect()
             self._transcriber = None
 
+            # Post-process the transcript to fix errors
+            final_text = final_text.strip()
+            if final_text:
+                final_text = await postprocess_transcript(final_text)
+
             if self.on_complete:
                 self.on_complete(final_text)
 
-            return final_text.strip()
+            return final_text
 
         return self._accumulated_text
 
@@ -290,3 +310,56 @@ class TranscriptionSession:
     def get_current_text(self) -> str:
         """Get the current transcript text."""
         return self._accumulated_text + self._pending_text
+
+
+async def postprocess_transcript(text: str) -> str:
+    """Clean up and improve transcribed text using an LLM.
+
+    Args:
+        text: Raw transcribed text.
+
+    Returns:
+        Cleaned up text, or original text if post-processing fails.
+    """
+    if not text or not text.strip():
+        return text
+
+    if not POSTPROCESS_ENABLED:
+        return text
+
+    api_key = get_api_key()
+
+    system_prompt = """You are a transcription cleanup assistant. Your job is to fix speech-to-text errors.
+
+Rules:
+- Fix spelling, grammar, and punctuation errors
+- Remove filler words like "um", "uh", "like" (when used as fillers)
+- Keep the meaning exactly the same
+- Do not add new content or commentary
+- Output ONLY the cleaned text, nothing else"""
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": POSTPROCESS_MODEL,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": text}
+                    ],
+                    "temperature": 0,  # Deterministic output
+                    "max_tokens": 4096,  # Generous limit
+                },
+                timeout=10.0,
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result["choices"][0]["message"]["content"].strip()
+    except Exception:
+        # If post-processing fails, return original text
+        return text

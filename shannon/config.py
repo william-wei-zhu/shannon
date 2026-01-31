@@ -28,3 +28,12 @@ CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION_MS / 1000)  # Samples per chunk
 REALTIME_MODEL = "gpt-4o-realtime-preview-2024-12-17"
 REALTIME_API_URL = "wss://api.openai.com/v1/realtime"
 TRANSCRIPTION_MODEL = "gpt-4o-transcribe"  # Supports streaming deltas
+
+# Transcription language (ISO-639-1 code) - improves accuracy and latency
+# Set to None for auto-detection, or specify: "en", "es", "zh", "ja", etc.
+TRANSCRIPTION_LANGUAGE = os.getenv("SHANNON_LANGUAGE", "en")
+
+# Post-processing settings
+# Set SHANNON_POSTPROCESS=false to disable post-processing
+POSTPROCESS_ENABLED = os.getenv("SHANNON_POSTPROCESS", "true").lower() == "true"
+POSTPROCESS_MODEL = "gpt-4o"  # Use full model for reliable text cleanup
